@@ -61,11 +61,12 @@ class MemoryBot:
 
     def play(self):
         print("Запускаем игру...")
-        
+        prev_unknown_count = len(self.find_unknown_cards())
+
         while True:
             unknown = self.find_unknown_cards()
             print(f"Неизвестных карт осталось: {len(unknown)}")
-            
+
             if len(unknown) >= 2:
                 print(f"Открываем две неизвестные карты по координатам {unknown[0]} и {unknown[1]}")
                 adb_tap(unknown[0])
@@ -76,9 +77,14 @@ class MemoryBot:
                 print("Делаем скриншот и обновляем известные карты...")
                 self.update_known_cards()
 
+                current_unknown_count = len(self.find_unknown_cards())
                 print(f"Известных карт после обновления: {len(self.known_cards)}")
                 print(f"Собранных пар: {len(self.matched_cards)//2}")
 
+                if current_unknown_count > 0 and current_unknown_count >= prev_unknown_count:
+                    print(f"Ошибка: количество неизвестных карт не уменьшилось после открытия! Было {prev_unknown_count}, стало {current_unknown_count}")
+
+                prev_unknown_count = current_unknown_count
             else:
                 pairs = self.find_pairs_to_open()
                 print(f"Известных пар для открытия: {len(pairs)}")
