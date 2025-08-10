@@ -3,15 +3,15 @@ import numpy as np
 import os
 import time
 
-TEMPLATE_DIR = 'templates'
+TEMPLATE_CARDS_DIR = 'templates/cards'
 SCREENSHOT = 'screen.png'
 THRESHOLD = 0.8
 
 def load_templates():
     templates = {}
-    for filename in os.listdir(TEMPLATE_DIR):
+    for filename in os.listdir(TEMPLATE_CARDS_DIR):
         if filename.endswith('.png'):
-            path = os.path.join(TEMPLATE_DIR, filename)
+            path = os.path.join(TEMPLATE_CARDS_DIR, filename)
             img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
             templates[filename] = img
     return templates
