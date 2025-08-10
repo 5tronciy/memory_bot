@@ -1,6 +1,7 @@
 from memory_bot import MemoryBot
 from adb_utils import adb_tap, adb_screencap
 from templates import load_templates, find_cards
+import os
 
 if __name__ == '__main__':
     all_card_centers = [
@@ -11,4 +12,5 @@ if __name__ == '__main__':
     ]
 
     bot = MemoryBot(all_card_centers)
+    bot.wait_for_start_screen()
     bot.play()

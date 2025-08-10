@@ -1,7 +1,8 @@
-from templates import load_templates, find_cards
-from adb_utils import adb_screencap, adb_tap
+from templates import load_templates, find_cards, find_template
+from adb_utils import adb_screencap, adb_screencap_async, adb_tap
 import time
 import cv2
+import os
 
 SCREENSHOT = 'screen.png'
 ANIMATION_DELAY = 0.5
@@ -14,11 +15,44 @@ class MemoryBot:
     def __init__(self, all_card_coords):
         self.known_cards = {}     # {(x,y): template_name}
         self.matched_cards = set() # {(x,y)}
+        self.failed_pairs = set()
         self.all_coords = all_card_coords
         self.templates = load_templates()
 
+    def wait_for_start_screen(self, template_path='rt.png', check_interval=0):
+        if not os.path.exists(template_path):
+            print(f"Start template not found: {template_path}")
+            return False
+
+        start_template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+        if start_template is None:
+            print("Failed to load start template image.")
+            return False
+
+        while True:
+            if not adb_screencap():
+                print("Failed to take screenshot.")
+                time.sleep(check_interval)
+                continue
+
+            adb_screencap_async()
+
+            screen = cv2.imread('screen.png', cv2.IMREAD_GRAYSCALE)
+            if screen is None:
+                print("Failed to load screenshot.")
+                time.sleep(check_interval)
+                continue
+
+            points = find_template(screen, start_template)
+            if points:
+                print("START screen detected.")
+                return True
+
+            time.sleep(2.5)
+
     def update_known_cards(self):
         adb_screencap()
+        adb_screencap_async()
         screen = cv2.imread(SCREENSHOT)
         screen_gray = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
         cards = find_cards(screen_gray, self.templates)
@@ -61,54 +95,38 @@ class MemoryBot:
 
     def play(self):
         print("Запускаем игру...")
-        prev_unknown_count = len(self.find_unknown_cards())
-
         while True:
-            unknown = self.find_unknown_cards()
-            print(f"Неизвестных карт осталось: {len(unknown)}")
+            pairs = [p for p in self.find_pairs_to_open() 
+                    if (p[0], p[1]) not in self.failed_pairs and (p[1], p[0]) not in self.failed_pairs]
 
-            if len(unknown) >= 2:
-                print(f"Открываем две неизвестные карты по координатам {unknown[0]} и {unknown[1]}")
-                adb_tap(unknown[0])
-                adb_tap(unknown[1])
-                print(f"Ждем {ANIMATION_DELAY} секунд, пока анимация откроется")
-                time.sleep(ANIMATION_DELAY)
+            if pairs:
+                for c1, c2, tmpl in pairs:
+                    if c1 in self.matched_cards or c2 in self.matched_cards:
+                        continue
 
-                print("Делаем скриншот и обновляем известные карты...")
-                self.update_known_cards()
+                    print(f"Открываем пару {tmpl} по координатам {c1} и {c2}")
+                    adb_tap(c1)
+                    adb_tap(c2)
+                    print(f"Ждем {ANIMATION_DELAY} секунд на анимацию...")
+                    time.sleep(ANIMATION_DELAY * 3)
 
-                current_unknown_count = len(self.find_unknown_cards())
-                print(f"Известных карт после обновления: {len(self.known_cards)}")
-                print(f"Собранных пар: {len(self.matched_cards)//2}")
+                    print(f"Пара {tmpl} собрана!")
+                    self.mark_as_matched(c1, c2)
+                    self.failed_pairs.discard((c1, c2))
+                    self.failed_pairs.discard((c2, c1))
 
-                if current_unknown_count > 0 and current_unknown_count >= prev_unknown_count:
-                    print(f"Ошибка: количество неизвестных карт не уменьшилось после открытия! Было {prev_unknown_count}, стало {current_unknown_count}")
-
-                prev_unknown_count = current_unknown_count
             else:
-                pairs = self.find_pairs_to_open()
-                print(f"Известных пар для открытия: {len(pairs)}")
+                unknown = self.find_unknown_cards()
+                print(f"Неизвестных карт осталось: {len(unknown)}")
+                if len(unknown) >= 2:
+                    print(f"Открываем две неизвестные карты по координатам {unknown[0]} и {unknown[1]}")
+                    adb_tap(unknown[0])
+                    adb_tap(unknown[1])
+                    print(f"Ждем {ANIMATION_DELAY} секунд, пока анимация откроется")
+                    time.sleep(ANIMATION_DELAY)
 
-                if pairs:
-                    for c1, c2, tmpl in pairs:
-                        if c1 in self.matched_cards or c2 in self.matched_cards:
-                            print(f"Пара {tmpl} по координатам {c1} и {c2} уже собрана, пропускаем.")
-                            continue
-
-                        print(f"Открываем пару {tmpl} по координатам {c1} и {c2}")
-                        adb_tap(c1)
-                        adb_tap(c2)
-                        print(f"Ждем {ANIMATION_DELAY} секунд на анимацию...")
-                        time.sleep(ANIMATION_DELAY)
-
-                        print("Обновляем известные карты после открытия пары...")
-                        self.update_known_cards()
-
-                        print(f"Отмечаем пару {tmpl} как собранную.")
-                        self.mark_as_matched(c1, c2)
-
-                        print(f"Текущие собранные пары: {len(self.matched_cards)//2}")
-
+                    print("Делаем скриншот и обновляем известные карты...")
+                    self.update_known_cards()
                 else:
-                    print("Нет пар для открытия и неизвестных карт, игра завершена.")
+                    print("Нет пар для открытия и неизвестных карт — игра завершена.")
                     break
