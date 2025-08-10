@@ -5,8 +5,8 @@ import cv2
 import os
 
 SCREENSHOT = 'screen.png'
-ANIMATION_DELAY = 0.4
-START_DELAY=1.4
+ANIMATION_DELAY = 0.26
+START_DELAY=1.45
 
 def get_card_center(coords):
     x, y, w, h = coords
@@ -143,28 +143,54 @@ class MemoryBot:
                     print(f"Текущие собранные пары: {len(self.matched_cards)//2}")
 
                 prev_unknown_count = len(self.find_unknown_cards())
-
             else:
                 unknown = self.find_unknown_cards()
                 print(f"Неизвестных карт осталось: {len(unknown)}")
                 if len(unknown) >= 2:
-                    print(f"Открываем две неизвестные карты по координатам {unknown[0]} и {unknown[1]}")
-                    adb_tap(unknown[0])
-                    adb_tap(unknown[1])
-                    print(f"Ждем {ANIMATION_DELAY} секунд, пока анимация откроется")
-                    time.sleep(ANIMATION_DELAY)
+                    if len(unknown) == 2 and self.known_cards:
+                        print(f"Открываем одну неизвестную карту по координатам {unknown[0]}")
+                        adb_tap(unknown[0])
+                        print(f"Ждем {ANIMATION_DELAY + 0.01} секунд, пока анимация откроется")
+                        time.sleep(ANIMATION_DELAY + 0.01)
+                        print("Делаем скриншот и обновляем известные карты...")
+                        self.update_known_cards()
+                        pairs = [p for p in self.find_pairs_to_open()
+                            if (p[0], p[1]) not in self.failed_pairs and (p[1], p[0]) not in self.failed_pairs]
+                        if pairs:
+                            print(f"Известных пар для открытия: {len(pairs)}")
+                            for c1, c2, tmpl in pairs:
+                                print(f"Открываем пару {tmpl} по координатам {c1} и {c2}")
+                                adb_tap(c1)
+                                adb_tap(c2)
+                                self.mark_as_matched(c1, c2)
+                                self.failed_pairs.discard((c1, c2))
+                                self.failed_pairs.discard((c2, c1))
+                                print(f"Ждем {ANIMATION_DELAY + 1} секунд на анимацию...")
+                                time.sleep(ANIMATION_DELAY + 1)
+                        print("Открываем последнюю пару")
+                        adb_tap(unknown[1])
+                        coord = next(iter(self.known_cards))
+                        adb_tap(coord)
+                        print(f"{self.known_cards}")
+                        break
+                    else:
+                        print(f"Открываем две неизвестные карты по координатам {unknown[0]} и {unknown[1]}")
+                        adb_tap(unknown[0])
+                        adb_tap(unknown[1])
+                        print(f"Ждем {ANIMATION_DELAY} секунд, пока анимация откроется")
+                        time.sleep(ANIMATION_DELAY)
 
-                    print("Делаем скриншот и обновляем известные карты...")
-                    self.update_known_cards()
+                        print("Делаем скриншот и обновляем известные карты...")
+                        self.update_known_cards()
 
-                    current_unknown_count = len(self.find_unknown_cards())
-                    print(f"Известных карт после обновления: {len(self.known_cards)}")
-                    print(f"Собранных пар: {len(self.matched_cards)//2}")
+                        current_unknown_count = len(self.find_unknown_cards())
+                        print(f"Известных карт после обновления: {len(self.known_cards)}")
+                        print(f"Собранных пар: {len(self.matched_cards)//2}")
 
-                    if current_unknown_count > 0 and current_unknown_count >= prev_unknown_count:
-                        print(f"[Error] количество неизвестных карт не уменьшилось! Было {prev_unknown_count}, стало {current_unknown_count}")
+                        if current_unknown_count > 0 and current_unknown_count >= prev_unknown_count:
+                            print(f"[Error] количество неизвестных карт не уменьшилось! Было {prev_unknown_count}, стало {current_unknown_count}")
 
-                    prev_unknown_count = current_unknown_count
+                        prev_unknown_count = current_unknown_count
                 else:
                     print("Нет пар для открытия и неизвестных карт — игра завершена.")
                     break
