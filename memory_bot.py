@@ -1,4 +1,4 @@
-from templates import load_templates, find_cards, find_template
+from templates import load_templates, find_cards, find_template, has_duplicate_templates
 from adb_utils import adb_screencap, adb_screencap_async, adb_tap
 import time
 import cv2
@@ -6,6 +6,7 @@ import os
 
 SCREENSHOT = 'screen.png'
 ANIMATION_DELAY = 0.4
+START_DELAY=1.4
 
 def get_card_center(coords):
     x, y, w, h = coords
@@ -56,7 +57,8 @@ class MemoryBot:
                 points = find_template(screen, tmpl)
                 if points:
                     print("START screen detected.")
-                    time.sleep(1)
+                    print(f"Ждем {START_DELAY} секунды, пока откроется игровое поле")
+                    time.sleep(START_DELAY)
                     return True
 
     def update_known_cards(self):
@@ -65,13 +67,21 @@ class MemoryBot:
         screen = cv2.imread(SCREENSHOT)
         screen_gray = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
         cards = find_cards(screen_gray, self.card_templates)
+        if has_duplicate_templates(cards):
+            for tmpl, coords in cards:
+                center = get_card_center(coords)
+                nearest = min(self.all_coords, key=lambda c: abs(c[0] - center[0]) + abs(c[1] - center[1]))
+                self.matched_cards.add(nearest)
+                if nearest in self.known_cards:
+                    del self.known_cards[nearest]
+            print(f"Добавлено в matched_cards {len(cards)} карт (пара найдена)")
+        else:
+            for tmpl, coords in cards:
+                center = get_card_center(coords)
 
-        for tmpl, coords in cards:
-            center = get_card_center(coords)
-
-            nearest = min(self.all_coords, key=lambda c: abs(c[0]-center[0]) + abs(c[1]-center[1]))
-            if nearest not in self.matched_cards:
-                self.known_cards[nearest] = tmpl
+                nearest = min(self.all_coords, key=lambda c: abs(c[0]-center[0]) + abs(c[1]-center[1]))
+                if nearest not in self.matched_cards:
+                    self.known_cards[nearest] = tmpl
 
     def find_unknown_cards(self):
         unknown = []
