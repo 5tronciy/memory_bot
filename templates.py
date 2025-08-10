@@ -41,3 +41,10 @@ def find_cards(screen_gray, templates):
             found_cards.append((name, (pt[0], pt[1], w, h)))
 
     return found_cards
+
+def find_template(screen_gray, template, treshold=THRESHOLD):
+    w, h = template.shape[::-1]
+    res = cv2.matchTemplate(screen_gray, template, cv2.TM_CCOEFF_NORMED)
+    loc = np.where(res >= treshold)
+    points = list(zip(*loc[::-1]))
+    return points
