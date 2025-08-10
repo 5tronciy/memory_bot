@@ -39,8 +39,17 @@ def find_cards(screen_gray, templates):
 
         for pt in filtered_points:
             found_cards.append((name, (pt[0], pt[1], w, h)))
+    print(found_cards)
 
     return found_cards
+
+def has_duplicate_templates(cards):
+    seen = set()
+    for tmpl, _ in cards:
+        if tmpl in seen:
+            return True
+        seen.add(tmpl)
+    return False
 
 def find_template(screen_gray, template, treshold=THRESHOLD):
     w, h = template.shape[::-1]
