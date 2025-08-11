@@ -2,6 +2,12 @@ from memory_bot import MemoryBot
 from adb_utils import adb_tap, adb_screencap
 from templates import load_templates, find_cards
 import os
+import random
+
+def shuffle_coords(coords):
+    coords_copy = coords[:]
+    random.shuffle(coords_copy)
+    return coords_copy
 
 if __name__ == '__main__':
     all_card_centers = [
@@ -11,6 +17,6 @@ if __name__ == '__main__':
       (260, 1575), (540, 1575), (820, 1575),
     ]
 
-    bot = MemoryBot(all_card_centers)
+    bot = MemoryBot(shuffle_coords(all_card_centers))
     bot.wait_for_start_screen()
-    bot.play()
+    bot.main()
