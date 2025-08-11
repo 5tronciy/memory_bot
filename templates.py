@@ -5,7 +5,7 @@ import time
 
 TEMPLATE_CARDS_DIR = 'templates/cards'
 SCREENSHOT = 'screen.png'
-THRESHOLD = 0.77
+THRESHOLD = 0.72
 
 def load_templates():
     templates = {}
@@ -34,7 +34,7 @@ def find_cards(screen_gray, templates):
 
         for pt, score in points_scores:
             x, y = pt
-            if all(abs(x - fx) > 40 or abs(y - fy) > 40 for fx, fy in filtered_points):
+            if all(abs(x - fx) > 52 or abs(y - fy) > 52 for fx, fy in filtered_points):
                 filtered_points.append((x, y))
 
         for pt in filtered_points:

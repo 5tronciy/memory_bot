@@ -3,22 +3,37 @@ from adb_utils import adb_screencap, adb_screencap_async, adb_tap
 import time
 import cv2
 import os
+import queue
+import threading
 
 SCREENSHOT = 'screen.png'
-ANIMATION_DELAY = 0.26
+OPEN_CARDS_ANIMATION_DELAY = 0.26
+CLOSE_CARDS_ANIMATION_DELAY = 1.1
 START_DELAY=1.45
 
 def get_card_center(coords):
     x, y, w, h = coords
     return (x + w // 2, y + h // 2)
 
+def delayed_analysis(bot, delay=OPEN_CARDS_ANIMATION_DELAY):
+    def task():
+        bot.analyze_board()
+    timer = threading.Timer(delay, task)
+    timer.daemon = True
+    timer.start()
+
 class MemoryBot:
     def __init__(self, all_card_coords):
+        self.queue = queue.Queue()
         self.known_cards = {}     # {(x,y): template_name}
         self.matched_cards = set() # {(x,y)}
         self.failed_pairs = set()
         self.all_coords = all_card_coords
         self.card_templates = load_templates()
+
+    def init_queue(self):
+        for i in range(0, 12, 2):
+            self.queue.put((i, i + 1))
 
     def wait_for_start_screen(self, templates_dir='templates/start', check_interval=0):
         if not os.path.isdir(templates_dir):
@@ -61,7 +76,8 @@ class MemoryBot:
                     time.sleep(START_DELAY)
                     return True
 
-    def update_known_cards(self):
+    def analyze_board(self):
+        start = time.perf_counter()
         adb_screencap()
         adb_screencap_async()
         screen = cv2.imread(SCREENSHOT)
@@ -82,6 +98,30 @@ class MemoryBot:
                 nearest = min(self.all_coords, key=lambda c: abs(c[0]-center[0]) + abs(c[1]-center[1]))
                 if nearest not in self.matched_cards:
                     self.known_cards[nearest] = tmpl
+        pairs = [p for p in self.find_pairs_to_open()
+                if (p[0], p[1]) not in self.failed_pairs and (p[1], p[0]) not in self.failed_pairs]
+        
+        if pairs:
+            print(f"Известных пар для открытия: {len(pairs)}")
+            for c1, c2, tmpl in pairs:
+                if c1 in self.matched_cards or c2 in self.matched_cards:
+                    print(f"Пара {tmpl} по координатам {c1} и {c2} уже собрана, пропускаем.")
+                    continue
+                i1 = self.coord_to_index(c1)
+                i2 = self.coord_to_index(c2)
+
+                if i1 is None or i2 is None:
+                    continue  # пропускаем если индексы не найдены
+
+                print("Ставим пару в очередь")
+                self.queue.put((i1, i2))
+                self.mark_as_matched(c1, c2)
+                self.failed_pairs.discard((c1, c2))
+                self.failed_pairs.discard((c2, c1))
+
+                print(f"Текущие собранные пары: {len(self.matched_cards)//2}")
+        end = time.perf_counter()
+        print(f"update_known_cards выполнилась за {end - start:.3f} секунд")
 
     def find_unknown_cards(self):
         unknown = []
@@ -104,93 +144,42 @@ class MemoryBot:
                         pairs.append((coords_list[i], coords_list[i+1], tmpl))
         return pairs
 
+    def coord_to_index(self, coord):
+        try:
+            return self.all_coords.index(coord)
+        except ValueError:
+            print(f"Ошибка: координата {coord} не найдена в all_coords")
+            return None
+
     def mark_as_matched(self, c1, c2):
         self.matched_cards.add(c1)
         self.matched_cards.add(c2)
         if c1 in self.known_cards: del self.known_cards[c1]
         if c2 in self.known_cards: del self.known_cards[c2]
-        print(f"Отмечены как собранные: {c1}, {c2}")
-        print(f"Всего собранных пар: {len(self.matched_cards)//2}")
+
+    def open_pair(self, i1, i2):
+        print(f"Открываем пару по координатам {i1} и {i2}")
+        adb_tap(self.all_coords[i1])
+        adb_tap(self.all_coords[i2])
+        time.sleep(OPEN_CARDS_ANIMATION_DELAY)
 
     def play(self):
         print("Запускаем игру...")
-        prev_unknown_count = len(self.find_unknown_cards())
-
         while True:
-            pairs = [p for p in self.find_pairs_to_open()
-                    if (p[0], p[1]) not in self.failed_pairs and (p[1], p[0]) not in self.failed_pairs]
+            try:
+                i1, i2 = self.queue.get(timeout=1)
+            except queue.Empty:
+                break
 
-            if pairs:
-                print(f"Известных пар для открытия: {len(pairs)}")
-                for c1, c2, tmpl in pairs:
-                    if c1 in self.matched_cards or c2 in self.matched_cards:
-                        print(f"Пара {tmpl} по координатам {c1} и {c2} уже собрана, пропускаем.")
-                        continue
+            self.open_pair(i1, i2)
+            delayed_analysis(self)
+            time.sleep(CLOSE_CARDS_ANIMATION_DELAY)
+            self.queue.task_done()
 
-                    print(f"Открываем пару {tmpl} по координатам {c1} и {c2}")
-                    adb_tap(c1)
-                    adb_tap(c2)
-                    print(f"Ждем {ANIMATION_DELAY} секунд на анимацию...")
-                    time.sleep(ANIMATION_DELAY)
+    def main(self):
+        self.init_queue()
+        click_thread = threading.Thread(target=self.play)
+        click_thread.start()
+        click_thread.join()
 
-                    print("Обновляем известные карты после открытия пары...")
-                    self.update_known_cards()
-
-                    self.mark_as_matched(c1, c2)
-                    self.failed_pairs.discard((c1, c2))
-                    self.failed_pairs.discard((c2, c1))
-
-                    print(f"Текущие собранные пары: {len(self.matched_cards)//2}")
-
-                prev_unknown_count = len(self.find_unknown_cards())
-            else:
-                unknown = self.find_unknown_cards()
-                print(f"Неизвестных карт осталось: {len(unknown)}")
-                if len(unknown) >= 2:
-                    if len(unknown) == 2 and self.known_cards:
-                        print(f"Открываем одну неизвестную карту по координатам {unknown[0]}")
-                        adb_tap(unknown[0])
-                        print(f"Ждем {ANIMATION_DELAY + 0.01} секунд, пока анимация откроется")
-                        time.sleep(ANIMATION_DELAY + 0.01)
-                        print("Делаем скриншот и обновляем известные карты...")
-                        self.update_known_cards()
-                        pairs = [p for p in self.find_pairs_to_open()
-                            if (p[0], p[1]) not in self.failed_pairs and (p[1], p[0]) not in self.failed_pairs]
-                        if pairs:
-                            print(f"Известных пар для открытия: {len(pairs)}")
-                            for c1, c2, tmpl in pairs:
-                                print(f"Открываем пару {tmpl} по координатам {c1} и {c2}")
-                                adb_tap(c1)
-                                adb_tap(c2)
-                                self.mark_as_matched(c1, c2)
-                                self.failed_pairs.discard((c1, c2))
-                                self.failed_pairs.discard((c2, c1))
-                                print(f"Ждем {ANIMATION_DELAY + 1} секунд на анимацию...")
-                                time.sleep(ANIMATION_DELAY + 1)
-                        print("Открываем последнюю пару")
-                        adb_tap(unknown[1])
-                        coord = next(iter(self.known_cards))
-                        adb_tap(coord)
-                        print(f"{self.known_cards}")
-                        break
-                    else:
-                        print(f"Открываем две неизвестные карты по координатам {unknown[0]} и {unknown[1]}")
-                        adb_tap(unknown[0])
-                        adb_tap(unknown[1])
-                        print(f"Ждем {ANIMATION_DELAY} секунд, пока анимация откроется")
-                        time.sleep(ANIMATION_DELAY)
-
-                        print("Делаем скриншот и обновляем известные карты...")
-                        self.update_known_cards()
-
-                        current_unknown_count = len(self.find_unknown_cards())
-                        print(f"Известных карт после обновления: {len(self.known_cards)}")
-                        print(f"Собранных пар: {len(self.matched_cards)//2}")
-
-                        if current_unknown_count > 0 and current_unknown_count >= prev_unknown_count:
-                            print(f"[Error] количество неизвестных карт не уменьшилось! Было {prev_unknown_count}, стало {current_unknown_count}")
-
-                        prev_unknown_count = current_unknown_count
-                else:
-                    print("Нет пар для открытия и неизвестных карт — игра завершена.")
-                    break
+        print("Игра пройдена!")
