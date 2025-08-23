@@ -8,8 +8,12 @@ import threading
 
 SCREENSHOT = 'screen.png'
 OPEN_CARDS_ANIMATION_DELAY = 0.26
-CLOSE_CARDS_ANIMATION_DELAY = 1.1
-START_DELAY=1.45
+CLOSE_CARDS_ANIMATION_DELAY = 1.12
+START_DELAY = 1.48
+START_DELAYS = {
+    'st.png': 1.48,
+    'rt.png': 0.8,
+}
 
 def get_card_center(coords):
     x, y, w, h = coords
@@ -41,12 +45,14 @@ class MemoryBot:
             return False
 
         start_templates = []
+        template_files = []
         for file in os.listdir(templates_dir):
             path = os.path.join(templates_dir, file)
             if os.path.isfile(path):
                 img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
                 if img is not None:
                     start_templates.append(img)
+                    template_files.append(file)
                 else:
                     print(f"Failed to load template: {path}")
 
@@ -68,12 +74,13 @@ class MemoryBot:
                 time.sleep(check_interval)
                 continue
 
-            for tmpl in start_templates:
+            for tmpl, fname in zip(start_templates, template_files):
                 points = find_template(screen, tmpl)
                 if points:
-                    print("START screen detected.")
-                    print(f"Ждем {START_DELAY} секунды, пока откроется игровое поле")
-                    time.sleep(START_DELAY)
+                    delay = START_DELAYS.get(fname, START_DELAY)
+                    print(f"START screen detected with template {fname}.")
+                    print(f"Ждем {delay} секунды, пока откроется игровое поле")
+                    time.sleep(delay)
                     return True
 
     def analyze_board(self):
@@ -121,7 +128,7 @@ class MemoryBot:
 
                 print(f"Текущие собранные пары: {len(self.matched_cards)//2}")
         end = time.perf_counter()
-        print(f"update_known_cards выполнилась за {end - start:.3f} секунд")
+        print(f"analyze_board выполнилась за {end - start:.3f} секунд")
 
     def find_unknown_cards(self):
         unknown = []
@@ -165,6 +172,8 @@ class MemoryBot:
 
     def play(self):
         print("Запускаем игру...")
+        counter = 0
+
         while True:
             try:
                 i1, i2 = self.queue.get(timeout=1)
@@ -172,7 +181,11 @@ class MemoryBot:
                 break
 
             self.open_pair(i1, i2)
-            delayed_analysis(self)
+
+            if counter < 6:
+                delayed_analysis(self)
+            counter += 1
+
             time.sleep(CLOSE_CARDS_ANIMATION_DELAY)
             self.queue.task_done()
 
