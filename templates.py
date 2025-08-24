@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import time
+from logger import logger
 
 TEMPLATE_CARDS_DIR = 'templates/cards'
 SCREENSHOT = 'screen.png'
@@ -39,7 +40,7 @@ def find_cards(screen_gray, templates):
 
         for pt in filtered_points:
             found_cards.append((name, (pt[0], pt[1], w, h)))
-    print(found_cards)
+    logger.info(found_cards)
 
     return found_cards
 

@@ -1,5 +1,6 @@
 from templates import load_templates, find_cards, find_template, has_duplicate_templates
 from adb_utils import adb_screencap, adb_screencap_async, adb_tap
+from logger import logger
 import time
 import cv2
 import os
@@ -24,6 +25,7 @@ def delayed_analysis(bot, delay=OPEN_CARDS_ANIMATION_DELAY):
         bot.analyze_board()
     timer = threading.Timer(delay, task)
     timer.daemon = True
+    timer.name = "AnalyzeBoard"
     timer.start()
 
 class MemoryBot:
@@ -41,7 +43,7 @@ class MemoryBot:
 
     def wait_for_start_screen(self, templates_dir='templates/start', check_interval=0):
         if not os.path.isdir(templates_dir):
-            print(f"Start templates folder not found: {templates_dir}")
+            logger.warning("Start templates folder not found: %s", templates_dir)
             return False
 
         start_templates = []
@@ -54,15 +56,15 @@ class MemoryBot:
                     start_templates.append(img)
                     template_files.append(file)
                 else:
-                    print(f"Failed to load template: {path}")
+                    logger.error("Failed to load template: %s", path)
 
         if not start_templates:
-            print("No valid start templates found.")
+            logger.error("No valid start templates found.")
             return False
 
         while True:
             if not adb_screencap():
-                print("Failed to take screenshot.")
+                logger.error("Failed to take screenshot.")
                 time.sleep(check_interval)
                 continue
 
@@ -70,7 +72,7 @@ class MemoryBot:
 
             screen = cv2.imread('screen.png', cv2.IMREAD_GRAYSCALE)
             if screen is None:
-                print("Failed to load screenshot.")
+                logger.error("Failed to load screenshot.")
                 time.sleep(check_interval)
                 continue
 
@@ -78,12 +80,13 @@ class MemoryBot:
                 points = find_template(screen, tmpl)
                 if points:
                     delay = START_DELAYS.get(fname, START_DELAY)
-                    print(f"START screen detected with template {fname}.")
-                    print(f"Ждем {delay} секунды, пока откроется игровое поле")
+                    logger.info("START screen detected with template %s.", fname)
+                    logger.info("Ждем %s секунды, пока откроется игровое поле", delay)
                     time.sleep(delay)
                     return True
 
     def analyze_board(self):
+        logger.info("analyze_board начинает работу")
         start = time.perf_counter()
         adb_screencap()
         adb_screencap_async()
@@ -97,7 +100,7 @@ class MemoryBot:
                 self.matched_cards.add(nearest)
                 if nearest in self.known_cards:
                     del self.known_cards[nearest]
-            print(f"Добавлено в matched_cards {len(cards)} карт (пара найдена)")
+            logger.info("Добавлено в matched_cards %d карт (пара найдена)", len(cards))
         else:
             for tmpl, coords in cards:
                 center = get_card_center(coords)
@@ -109,10 +112,10 @@ class MemoryBot:
                 if (p[0], p[1]) not in self.failed_pairs and (p[1], p[0]) not in self.failed_pairs]
         
         if pairs:
-            print(f"Известных пар для открытия: {len(pairs)}")
+            logger.info("Известных пар для открытия: %d", len(pairs))
             for c1, c2, tmpl in pairs:
                 if c1 in self.matched_cards or c2 in self.matched_cards:
-                    print(f"Пара {tmpl} по координатам {c1} и {c2} уже собрана, пропускаем.")
+                    logger.info("Пара %s по координатам %d и %d уже собрана, пропускаем.", tmpl, c1, c2)
                     continue
                 i1 = self.coord_to_index(c1)
                 i2 = self.coord_to_index(c2)
@@ -120,15 +123,15 @@ class MemoryBot:
                 if i1 is None or i2 is None:
                     continue  # пропускаем если индексы не найдены
 
-                print("Ставим пару в очередь")
+                logger.info("Ставим пару в очередь")
                 self.queue.put((i1, i2))
                 self.mark_as_matched(c1, c2)
                 self.failed_pairs.discard((c1, c2))
                 self.failed_pairs.discard((c2, c1))
 
-                print(f"Текущие собранные пары: {len(self.matched_cards)//2}")
+                logger.info("Текущие собранные пары: %d", len(self.matched_cards)//2)
         end = time.perf_counter()
-        print(f"analyze_board выполнилась за {end - start:.3f} секунд")
+        logger.info("analyze_board выполнилась за %.3f секунд", end - start)
 
     def find_unknown_cards(self):
         unknown = []
@@ -155,7 +158,7 @@ class MemoryBot:
         try:
             return self.all_coords.index(coord)
         except ValueError:
-            print(f"Ошибка: координата {coord} не найдена в all_coords")
+            logger.error("Ошибка: координата %d не найдена в all_coords", coord)
             return None
 
     def mark_as_matched(self, c1, c2):
@@ -165,13 +168,13 @@ class MemoryBot:
         if c2 in self.known_cards: del self.known_cards[c2]
 
     def open_pair(self, i1, i2):
-        print(f"Открываем пару по координатам {i1} и {i2}")
+        logger.info("Открываем пару по координатам %d и %d", i1, i2)
         adb_tap(self.all_coords[i1])
         adb_tap(self.all_coords[i2])
         time.sleep(OPEN_CARDS_ANIMATION_DELAY)
 
     def play(self):
-        print("Запускаем игру...")
+        logger.info("Запускаем игру...")
         counter = 0
 
         while True:
@@ -191,8 +194,8 @@ class MemoryBot:
 
     def main(self):
         self.init_queue()
-        click_thread = threading.Thread(target=self.play)
+        click_thread = threading.Thread(target=self.play, name="Main")
         click_thread.start()
         click_thread.join()
 
-        print("Игра пройдена!")
+        logger.info("Игра пройдена!")
